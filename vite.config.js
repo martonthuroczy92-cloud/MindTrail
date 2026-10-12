@@ -15,6 +15,16 @@ function publicSupabaseConfig(mode) {
   if (key.startsWith('sb_secret_') || jwtRole(key) === 'service_role') {
     throw new Error('Refusing to build: the Supabase key chosen for the browser is a secret/service key.');
   }
+  // On Vercel, fail the deploy instead of shipping an app that cannot start.
+  if (process.env.VERCEL && (!url || !key)) {
+    const present = Object.keys(all).filter((n) => /SUPABASE/i.test(n)).sort();
+    throw new Error(
+      'Supabase settings are missing at build time, so the app cannot start. ' +
+        'Connect the Supabase database to this project (Vercel → Storage → your database → Connect Project, ' +
+        'tick Production and Preview) and redeploy. ' +
+        `Supabase-related variables found: ${present.length ? present.join(', ') : 'none'}.`,
+    );
+  }
   return { url, key };
 }
 

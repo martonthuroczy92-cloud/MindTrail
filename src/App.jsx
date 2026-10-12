@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { supabase } from './lib/supabase.js';
+import { configError, supabase } from './lib/supabase.js';
 import Login from './screens/Login.jsx';
 import Upload from './screens/Upload.jsx';
 import Recordings from './screens/Recordings.jsx';
 import Recording from './screens/Recording.jsx';
 
 export default function App() {
+  if (configError) {
+    return <main className="page"><h1>MindTrail</h1><p className="error">{configError}</p></main>;
+  }
+  return <SignedInApp />;
+}
+
+function SignedInApp() {
   const [session, setSession] = useState(undefined); // undefined = still loading
 
   useEffect(() => {
