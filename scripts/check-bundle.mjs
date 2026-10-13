@@ -39,8 +39,12 @@ async function* walk(dir) {
   }
 }
 
+// Also catches prefixed variants such as `mindtrail_SUPABASE_SERVICE_ROLE_KEY`.
+const SECRET_NAME_SUFFIX = /(SERVICE_ROLE_KEY|SUPABASE_SECRET_KEY|JWT_SECRET|POSTGRES_(PRISMA_)?URL(_NON_POOLING)?|POSTGRES_PASSWORD|_API_KEY|CRON_SECRET|OIDC_TOKEN)$/;
+
 export async function scanDir(dir, env = process.env) {
-  const secrets = SECRET_ENV_NAMES.map((n) => [n, env[n]?.trim()]).filter(([, v]) => v && v.length >= 12);
+  const names = new Set([...SECRET_ENV_NAMES, ...Object.keys(env).filter((n) => SECRET_NAME_SUFFIX.test(n))]);
+  const secrets = [...names].map((n) => [n, env[n]?.trim()]).filter(([, v]) => v && v.length >= 12);
   const findings = [];
   for await (const file of walk(dir)) {
     const text = await readFile(file, 'utf8');

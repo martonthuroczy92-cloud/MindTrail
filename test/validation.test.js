@@ -51,3 +51,24 @@ describe('transcriptionCost', () => {
     expect(transcriptionCost('openai/gpt-4o-mini-transcribe', 600)).toBeCloseTo(0.03, 5);
   });
 });
+
+import { findEnv } from '../api/_lib/env-lookup.js';
+
+describe('findEnv', () => {
+  const vercelPrefixed = {
+    mindtrail_SUPABASE_URL: 'https://a.supabase.co',
+    mindtrail_mindtrailSUPABASE_URL: 'https://b.supabase.co',
+    mindtrail_SUPABASE_ANON_KEY: 'anon',
+    mindtrail_SUPABASE_SERVICE_ROLE_KEY: 'service',
+  };
+  it('finds prefixed names, preferring the shortest', () => {
+    expect(findEnv(vercelPrefixed, ['SUPABASE_URL'])).toEqual({ name: 'mindtrail_SUPABASE_URL', value: 'https://a.supabase.co' });
+    expect(findEnv(vercelPrefixed, ['SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY']).value).toBe('anon');
+  });
+  it('prefers the exact name', () => {
+    expect(findEnv({ ...vercelPrefixed, SUPABASE_URL: 'https://exact.supabase.co' }, ['SUPABASE_URL']).value).toBe('https://exact.supabase.co');
+  });
+  it('never returns the service key for the browser key lookup', () => {
+    expect(findEnv({ mindtrail_SUPABASE_SERVICE_ROLE_KEY: 'x' }, ['SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY'])).toBeUndefined();
+  });
+});

@@ -85,7 +85,9 @@ Without a verified domain, Resend's test sender `onboarding@resend.dev` only del
 | `APP_URL` | you, optional | no | Magic-link redirect target. Defaults to Vercel's production URL. |
 | `AI_GATEWAY_API_KEY` | you, **local dev only** | **yes** | Not needed on Vercel (OIDC). |
 
-The integration may name the Supabase variables differently, e.g. with a `NEXT_PUBLIC_` prefix. The code accepts the known aliases. Run `vercel env ls` to see yours.
+The integration may add a prefix to the Supabase variables, such as `mindtrail_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_URL`. The code finds any variable whose name *ends* in the standard name, and an exact name always wins.
+
+**ffmpeg.** The transcription function needs the ffmpeg binary that `ffmpeg-static` downloads in its install script. npm only runs that script because of `"allowScripts"` in `package.json`, which is pinned to the exact version. If you upgrade `ffmpeg-static`, run `npm install-scripts approve ffmpeg-static`. `npm run build` fails if the binary is missing; if that happens on Vercel, redeploy with "Use existing Build Cache" unticked.
 
 ## Local development
 

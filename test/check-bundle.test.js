@@ -39,3 +39,11 @@ describe('bundle secret check', () => {
     expect(findings.join()).toMatch(/Anthropic/);
   });
 });
+
+describe('bundle secret check with prefixed variables', () => {
+  it('flags the value of a prefixed service key', async () => {
+    const env = { mindtrail_SUPABASE_SERVICE_ROLE_KEY: 'prefixed-service-key-value-123' };
+    const findings = await withDist({ 'a.js': 'x="prefixed-service-key-value-123"' }, (d) => scanDir(d, env));
+    expect(findings.join()).toMatch(/mindtrail_SUPABASE_SERVICE_ROLE_KEY/);
+  });
+});

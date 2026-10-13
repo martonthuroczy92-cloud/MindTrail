@@ -1,6 +1,6 @@
 // Server-side configuration. Never import this file from src/ (browser code).
-// The Vercel ↔ Supabase integration has used different variable names over time, so each
-// value accepts the known aliases. Run `vercel env ls` to see which ones your project has.
+// Supabase variables are found with or without a prefix (see env-lookup.js).
+import { findEnv, SUPABASE_SERVER_KEY_NAMES, SUPABASE_URL_NAMES } from './env-lookup.js';
 
 function first(...names) {
   for (const n of names) {
@@ -17,10 +17,10 @@ function required(label, value) {
 
 export const env = {
   get supabaseUrl() {
-    return required('SUPABASE_URL', first('SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL'));
+    return required('SUPABASE_URL', findEnv(process.env, SUPABASE_URL_NAMES)?.value);
   },
   get supabaseServiceKey() {
-    return required('SUPABASE_SERVICE_ROLE_KEY', first('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEY'));
+    return required('SUPABASE_SERVICE_ROLE_KEY', findEnv(process.env, SUPABASE_SERVER_KEY_NAMES)?.value);
   },
   get ownerEmail() {
     return required('OWNER_EMAIL', first('OWNER_EMAIL'))?.toLowerCase();

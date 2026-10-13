@@ -1,17 +1,14 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { findEnv, SUPABASE_BROWSER_KEY_NAMES, SUPABASE_URL_NAMES } from './api/_lib/env-lookup.js';
 
 // Only these two values reach the browser bundle, by explicit allowlist (not by env prefix).
 // Both are public by design: the anon/publishable key can do nothing that RLS does not allow.
 function publicSupabaseConfig(mode) {
   const all = { ...loadEnv(mode, process.cwd(), ''), ...process.env };
-  const pick = (...names) => names.map((n) => all[n]).find((v) => v && v.trim())?.trim() ?? '';
-  const url = pick('SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL', 'VITE_SUPABASE_URL');
-  const key = pick(
-    'SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-    'SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
-  );
+  const url = findEnv(all, SUPABASE_URL_NAMES)?.value ?? '';
+  const key = findEnv(all, SUPABASE_BROWSER_KEY_NAMES)?.value ?? '';
   if (key.startsWith('sb_secret_') || jwtRole(key) === 'service_role') {
     throw new Error('Refusing to build: the Supabase key chosen for the browser is a secret/service key.');
   }
@@ -21,7 +18,8 @@ function publicSupabaseConfig(mode) {
     throw new Error(
       'Supabase settings are missing at build time, so the app cannot start. ' +
         'Connect the Supabase database to this project (Vercel → Storage → your database → Connect Project, ' +
-        'tick Production and Preview) and redeploy. ' +
+        'tick Production and Preview) and redeploy. Names must end in SUPABASE_URL and SUPABASE_ANON_KEY ' +
+        '(or SUPABASE_PUBLISHABLE_KEY). ' +
         `Supabase-related variables found: ${present.length ? present.join(', ') : 'none'}.`,
     );
   }
