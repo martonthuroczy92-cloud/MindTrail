@@ -33,6 +33,7 @@ export function createFakeSupabase(seed = {}) {
       update(obj) { op = { kind: 'update', obj }; return api; },
       insert(obj) { op = { kind: 'insert', obj }; return api; },
       upsert(obj) { op = { kind: 'upsert', obj }; return api; },
+      delete() { op = { kind: 'delete' }; return api; },
       maybeSingle() { return run().then(({ data, error }) => ({ data: data?.[0] ?? null, error })); },
       single() { return run().then(({ data, error }) => ({ data: data?.[0] ?? null, error: data?.[0] ? error : new Error('no rows') })); },
       then(res, rej) { return run().then(res, rej); },
@@ -45,7 +46,7 @@ export function createFakeSupabase(seed = {}) {
         for (const item of items) {
           const key = table === 'audio_chunks'
             ? (r) => r.recording_id === item.recording_id && r.idx === item.idx
-            : table === 'transcripts' ? (r) => r.recording_id === item.recording_id : () => false;
+            : ['transcripts', 'summaries'].includes(table) ? (r) => r.recording_id === item.recording_id : () => false;
           const existing = op.kind === 'upsert' ? list.find(key) : null;
           if (existing) Object.assign(existing, item);
           else list.push({ ...item });
@@ -53,6 +54,10 @@ export function createFakeSupabase(seed = {}) {
         return { data: items, error: null };
       }
       let out = list.filter(matches);
+      if (op.kind === 'delete') {
+        tables[table] = list.filter((r) => !matches(r));
+        return { data: null, error: null };
+      }
       if (op.kind === 'update') {
         out.forEach((r) => Object.assign(r, op.obj));
         return { data: returning ? out.map((r) => ({ ...r })) : null, error: null };

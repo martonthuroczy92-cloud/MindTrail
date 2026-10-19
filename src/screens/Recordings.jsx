@@ -77,6 +77,7 @@ export default function Recordings() {
           ))}
         </ul>
       )}
+      <p><button type="button" className="link" onClick={() => supabase.auth.signOut()}>Sign out</button></p>
     </>
   );
 }

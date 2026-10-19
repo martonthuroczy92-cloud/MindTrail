@@ -2,7 +2,15 @@
 
 Personal, single-user app: record or upload private conversations, get a transcript, and (from phase 2) reviewed action items and reminders. One owner only, by design. Not for work meetings, not multi-tenant.
 
-**Status: phase 1** — sign-in restricted to one email, upload an audio file, asynchronous transcription with timestamps, transcript view, full-text search.
+**Status: phase 2.**
+
+- **Phase 1:** owner-only sign-in, audio upload, resumable transcription with timestamps, transcript view and search.
+- **Phase 2:**
+  - Claude extracts a summary and action items.
+  - A Review screen where nothing is accepted without you.
+  - A Today list with done and snooze.
+  - A background scheduler.
+  - Cost logging per call.
 
 ## Architecture
 
@@ -83,11 +91,39 @@ Without a verified domain, Resend's test sender `onboarding@resend.dev` only del
 | `TRANSCRIBE_MODEL` | you, optional | no | AI Gateway model ID; default `openai/whisper-1`. |
 | `TRANSCRIBE_USD_PER_MIN` | you, optional | no | Overrides the price estimate used for the spending cap. |
 | `APP_URL` | you, optional | no | Magic-link redirect target. Defaults to Vercel's production URL. |
+| `ANTHROPIC_API_KEY` | you | **yes** | Claude API key for extraction (phase 2). |
+| `EXTRACT_MODEL` | you, optional | no | Default `claude-sonnet-5-5`. |
+| `CRON_SECRET` | you | **yes** | At least 32 random characters. Must equal the secret stored in Supabase Vault by `0003_scheduler.sql`. |
 | `AI_GATEWAY_API_KEY` | you, **local dev only** | **yes** | Not needed on Vercel (OIDC). |
 
 The integration may add a prefix to the Supabase variables, such as `mindtrail_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_URL`. The code finds any variable whose name *ends* in the standard name, and an exact name always wins.
 
 **ffmpeg.** The transcription function needs the ffmpeg binary that `ffmpeg-static` downloads in its install script. npm only runs that script because of `"allowScripts"` in `package.json`, which is pinned to the exact version. If you upgrade `ffmpeg-static`, run `npm install-scripts approve ffmpeg-static`. `npm run build` fails if the binary is missing; if that happens on Vercel, redeploy with "Use existing Build Cache" unticked.
+
+## Phase 2: extraction, review, Today
+
+### How extraction works (`api/_lib/extract.js`)
+
+1. After transcription, the job moves to `extracting`. The transcript goes to Claude (`claude-sonnet-5-5`), one line per segment, prefixed with its start time in seconds. Claude also gets the conversation date, your output language and, optionally, your name (`settings.owner_name`).
+2. The reply is forced into a JSON schema (structured outputs) and validated again in code, with zod. Invalid output is retried once. A safety refusal is not retried.
+3. **No quote, no item:** each item's `source_quote` must be found word for word in the transcript (case and punctuation are ignored). Otherwise the item is dropped. The timestamp is then taken from the transcript, not from the model.
+4. Dates are `stated` (said in the conversation, including "next Tuesday") or `suggested` (implied only). The two are shown differently, and an item never gets a date from nothing.
+5. Items below confidence 0.6 are marked **Uncertain** on the Review screen.
+6. Every Claude call is logged in `usage_log` with its tokens and estimated cost, including failed attempts. The monthly cap stops processing before the next call once spending reaches it.
+
+A failed extraction retries without transcribing again. Re-running extraction never proposes something you already accepted, finished or dismissed.
+
+**Known limit:** transcripts have no speaker labels, so "who promised what" is inferred from wording. Set your name so the model can tell when others address you:
+
+```sql
+update public.settings set owner_name = 'Your name';
+```
+
+### Setup for phase 2
+
+1. Run `supabase/migrations/0002_phase2.sql` in the SQL editor.
+2. In Vercel, add `ANTHROPIC_API_KEY` and `CRON_SECRET`, then redeploy.
+3. Edit `supabase/migrations/0003_scheduler.sql`: replace `<<CRON_SECRET>>` with the same secret and `<<APP_URL>>` with your production URL, then run it. Check that it works with `select * from cron.job_run_details order by start_time desc limit 5;`. The status should be `succeeded` within 5 minutes.
 
 ## Local development
 
@@ -118,7 +154,8 @@ npm run build                               # build + bundle secret check
   - With the new API keys (Supabase → Settings → API Keys): create a new secret key, update the Vercel variable (or re-sync the integration), redeploy, then delete the old key.
   - With legacy JWT keys: rotating the JWT secret invalidates **both** the anon and the service-role key, and signs you out. Update both variables and redeploy.
 - **AI Gateway:** production uses OIDC, so there is no static key to rotate. Rotate a local-dev key under AI Gateway → API Keys.
-- **Anthropic** (phase 2): create a new key in the Claude Console, update `ANTHROPIC_API_KEY`, redeploy, then revoke the old key.
+- **Anthropic:** create a new key in the Claude Console, update `ANTHROPIC_API_KEY`, redeploy, then revoke the old key.
+- **CRON_SECRET:** generate a new value (e.g. `openssl rand -hex 32`), set it in Vercel and redeploy, then re-run `0003_scheduler.sql` with the new value. It updates the Vault secret in place.
 
 After any rotation, run `npm run build` locally or check the deploy log for "Secret check passed".
 

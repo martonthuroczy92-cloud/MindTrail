@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { api } from '../lib/api.js';
 import { clock, shortDate, STATUS_LABEL } from '../lib/format.js';
+import { Badges, Quote } from '../components/ItemMeta.jsx';
+
+const ITEM_STATUS = { proposed: 'To review', accepted: 'Open', done: 'Done', dismissed: 'Dismissed', snoozed: 'Snoozed' };
 
 const POLL_MS = 4000;
 const KICK_EVERY_MS = 20000;
@@ -23,20 +26,26 @@ export default function Recording() {
   const [recording, setRecording] = useState(null);
   const [job, setJob] = useState(undefined);
   const [transcript, setTranscript] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const lastKick = useRef(0);
 
   const load = useCallback(async () => {
-    const [rec, jobs, tr] = await Promise.all([
+    const [rec, jobs, tr, sum, its] = await Promise.all([
       supabase.from('recordings').select('*').eq('id', id).maybeSingle(),
       supabase.from('jobs').select('*').eq('recording_id', id).order('created_at', { ascending: false }).limit(1),
       supabase.from('transcripts').select('*').eq('recording_id', id).maybeSingle(),
+      supabase.from('summaries').select('*').eq('recording_id', id).maybeSingle(),
+      supabase.from('action_items').select('*').eq('recording_id', id).order('source_timestamp'),
     ]);
-    const err = rec.error || jobs.error || tr.error;
+    const err = rec.error || jobs.error || tr.error || sum.error || its.error;
     if (err) return setError(err.message);
     setRecording(rec.data);
     setJob(jobs.data?.[0] ?? null);
     setTranscript(tr.data);
+    setSummary(sum.data);
+    setItems(its.data ?? []);
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
@@ -100,6 +109,35 @@ export default function Recording() {
         </div>
       )}
       {error && <p className="error">{error}</p>}
+
+      {summary && (
+        <section>
+          <h2>Summary</h2>
+          <p>{summary.summary}</p>
+          {summary.decisions.length > 0 && (
+            <><h3>Decided</h3><ul>{summary.decisions.map((d, i) => <li key={i}>{d}</li>)}</ul></>
+          )}
+          {summary.open_questions.length > 0 && (
+            <><h3>Open questions</h3><ul>{summary.open_questions.map((d, i) => <li key={i}>{d}</li>)}</ul></>
+          )}
+        </section>
+      )}
+      {summary && (
+        <section>
+          <h2>Action items</h2>
+          {items.length === 0 && <p className="muted">No commitments found in this conversation.</p>}
+          {items.some((i) => i.status === 'proposed') && <Link to="/review" className="card banner">Review proposed items →</Link>}
+          <ul className="items">
+            {items.map((item) => (
+              <li key={item.id} className="item">
+                <p className="item-text">{item.text} <span className="muted">· {ITEM_STATUS[item.status]}</span></p>
+                <Badges item={item} />
+                <Quote item={item} showLink={false} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {transcript && (
         <section>

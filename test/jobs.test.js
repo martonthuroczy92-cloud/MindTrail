@@ -22,6 +22,32 @@ vi.mock('../api/_lib/transcribe.js', () => ({
   }),
 }));
 
+let extractCalls;
+let extractFails;
+vi.mock('../api/_lib/extract.js', async (orig) => ({
+  ...(await orig()),
+  extract: async ({ segments, outputLanguage }) => {
+    extractCalls += 1;
+    if (extractFails) {
+      const { ExtractionError } = await orig();
+      const err = new ExtractionError('Extraction failed twice: output was not JSON.');
+      err.usages = [{ model: 'claude-sonnet-5-5', usage: { input_tokens: 500, output_tokens: 50 } }];
+      throw err;
+    }
+    return {
+      output: {
+        summary: `${segments.length} parts, ${outputLanguage}`,
+        decisions: [],
+        open_questions: [],
+        action_items: [{ text: 'Call', owner: 'me', owner_label: null, due_date: null, due_date_source: null,
+          priority: 'normal', source_quote: 'part 1', source_timestamp: 1, confidence: 0.83 }],
+      },
+      usages: [{ model: 'claude-sonnet-5-5', usage: { input_tokens: 10_000, output_tokens: 1_000 } }],
+      dropped: 0,
+    };
+  },
+}));
+
 const { runJob } = await import('../api/_lib/jobs.js');
 const { resetFailedJob } = await import('../api/_lib/jobs.js');
 
@@ -40,9 +66,9 @@ async function makeAudio(seconds) {
 function seed({ retention = 0, cap = 25, spent = 0 } = {}) {
   fake = createFakeSupabase({
     tables: {
-      settings: [{ user_id: USER, monthly_cap_usd: cap, audio_retention_days: retention }],
+      settings: [{ user_id: USER, monthly_cap_usd: cap, audio_retention_days: retention, output_language: 'hu', timezone: 'Europe/Budapest' }],
       usage_this_month: spent ? [{ user_id: USER, cost_usd: spent }] : [],
-      recordings: [{ id: 'r1', user_id: USER, language: 'auto', audio_path: `${USER}/r1/original.m4a`, audio_deleted_at: null }],
+      recordings: [{ id: 'r1', user_id: USER, title: 'Test', created_at: '2026-10-19T08:00:00Z', language: 'auto', audio_path: `${USER}/r1/original.m4a`, audio_deleted_at: null }],
       jobs: [{ id: 'j1', recording_id: 'r1', user_id: USER, status: 'queued', attempts: 0, locked_until: null, progress: {} }],
       audio_chunks: [],
     },
@@ -56,6 +82,8 @@ describe('runJob', () => {
   }, 120_000);
 
   beforeEach(() => {
+    extractCalls = 0;
+    extractFails = false;
     transcribeCalls = 0;
     failOnCall = 0;
   });
@@ -70,8 +98,15 @@ describe('runJob', () => {
     const t = fake.tables.transcripts[0];
     expect(t.segments).toHaveLength(3);
     expect(t.segments.map((s) => Math.round(s.start))).toEqual([1, 601, 1201]);
-    expect(fake.tables.usage_log).toHaveLength(3);
-    expect(fake.tables.usage_log.reduce((s, u) => s + u.cost_usd, 0)).toBeCloseTo((1300 / 60) * 0.006, 3);
+    const transcribeLog = fake.tables.usage_log.filter((u) => u.operation === 'transcribe');
+    expect(transcribeLog).toHaveLength(3);
+    expect(transcribeLog.reduce((s, u) => s + u.cost_usd, 0)).toBeCloseTo((1300 / 60) * 0.006, 3);
+    const extractLog = fake.tables.usage_log.filter((u) => u.operation === 'extract');
+    expect(extractLog).toHaveLength(1);
+    expect(extractLog[0].cost_usd).toBeCloseTo(0.03, 5); // 10k in × $2 + 1k out × $10 per MTok
+    expect(fake.tables.summaries[0].summary).toBe('3 parts, hu');
+    expect(fake.tables.action_items).toHaveLength(1);
+    expect(fake.tables.action_items[0]).toMatchObject({ status: 'proposed', confidence: 0.83, recording_id: 'r1' });
     expect(fake.removed).toContain(`${USER}/r1/original.m4a`);
     expect(fake.tables.recordings[0].audio_deleted_at).toBeTruthy();
     expect(Math.round(fake.tables.recordings[0].duration_sec)).toBe(1300);
@@ -101,6 +136,30 @@ describe('runJob', () => {
     expect(transcribeCalls - callsBefore).toBe(3 - doneAfterFailure);
   }, 60_000);
 
+  it('a failed extraction is retried without transcribing again', async () => {
+    seed();
+    extractFails = true;
+    expect((await runJob('j1', USER)).status).toBe('failed');
+    expect(fake.tables.transcripts).toHaveLength(1);
+    expect(fake.tables.usage_log.filter((u) => u.operation === 'extract')).toHaveLength(1); // failed call still costs
+    const transcribed = transcribeCalls;
+
+    extractFails = false;
+    await resetFailedJob('j1', USER);
+    expect((await runJob('j1', USER)).status).toBe('ready');
+    expect(transcribeCalls).toBe(transcribed);
+    expect(fake.tables.action_items).toHaveLength(1);
+  }, 60_000);
+
+  it('re-running extraction keeps decided items and does not propose them again', async () => {
+    seed();
+    await runJob('j1', USER);
+    fake.tables.action_items[0].status = 'accepted';
+    fake.tables.jobs[0].status = 'extracting';
+    await runJob('j1', USER);
+    expect(fake.tables.action_items.map((i) => i.status)).toEqual(['accepted']);
+  }, 60_000);
+
   it('stops when the monthly cap is reached', async () => {
     seed({ cap: 5, spent: 5.01 });
     const res = await runJob('j1', USER);
@@ -123,6 +182,7 @@ describe('runJob', () => {
     const origCalls = () => transcribeCalls;
     const res1 = await runJob('j1', USER, { concurrency: 1, now: () => (origCalls() >= 1 ? (t = 200_000) : t) });
     expect(res1).toEqual({ status: 'transcribing', done: false });
+    expect(extractCalls).toBe(0);
     expect(fake.tables.jobs[0].locked_until).toBeNull();
     const res2 = await runJob('j1', USER, { now: clock });
     expect(res2.status).toBe('ready');

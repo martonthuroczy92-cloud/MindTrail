@@ -5,6 +5,8 @@ import Login from './screens/Login.jsx';
 import Upload from './screens/Upload.jsx';
 import Recordings from './screens/Recordings.jsx';
 import Recording from './screens/Recording.jsx';
+import Today from './screens/Today.jsx';
+import Review from './screens/Review.jsx';
 
 export default function App() {
   if (configError) {
@@ -29,16 +31,19 @@ function SignedInApp() {
     <div className="app">
       <main className="page">
         <Routes>
-          <Route path="/" element={<Upload />} />
+          <Route path="/" element={<Today />} />
+          <Route path="/review" element={<Review />} />
+          <Route path="/add" element={<Upload />} />
           <Route path="/recordings" element={<Recordings />} />
           <Route path="/recordings/:id" element={<Recording />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
       <nav className="tabbar">
-        <NavLink to="/" end>Add</NavLink>
+        <NavLink to="/" end>Today</NavLink>
+        <NavLink to="/review">Review</NavLink>
+        <NavLink to="/add">Add</NavLink>
         <NavLink to="/recordings">Recordings</NavLink>
-        <button type="button" className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
       </nav>
     </div>
   );
