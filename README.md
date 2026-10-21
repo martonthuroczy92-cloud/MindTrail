@@ -125,6 +125,17 @@ update public.settings set owner_name = 'Your name';
 2. In Vercel, add `ANTHROPIC_API_KEY` and `CRON_SECRET`, then redeploy.
 3. Edit `supabase/migrations/0003_scheduler.sql`: replace `<<CRON_SECRET>>` with the same secret and `<<APP_URL>>` with your production URL, then run it. Check that it works with `select * from cron.job_run_details order by start_time desc limit 5;`. The status should be `succeeded` within 5 minutes.
 
+## Writing new migrations
+
+From 30 October 2026, Supabase no longer grants Data API access to new tables in `public` automatically. Every migration that creates a table must therefore, in the same file:
+
+1. enable RLS and add the `owner_all` policy;
+2. `revoke all ... from anon`;
+3. grant `authenticated` only what the app needs;
+4. `grant all ... to service_role`.
+
+Do **not** copy the generic template in Supabase's notice email, which grants `select` to `anon`. This app never needs `anon` access.
+
 ## Local development
 
 ```bash
